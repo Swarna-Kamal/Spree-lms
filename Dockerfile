@@ -1,13 +1,11 @@
-FROM eclipse-temurin:21-jdk-alpine AS build
+FROM maven:3.9.9-eclipse-temurin-21-alpine AS build
 WORKDIR /workspace/app
 
-# Copies files whether context is root or backend directory
-COPY backend/mvnw backend/pom.xml ./
-COPY backend/.mvn ./.mvn
-COPY backend/src ./src
+COPY backend/pom.xml .
+RUN mvn dependency:go-offline -B
 
-RUN chmod +x ./mvnw
-RUN ./mvnw clean package -DskipTests
+COPY backend/src src
+RUN mvn clean package -DskipTests -B
 
 FROM eclipse-temurin:21-jre-alpine
 VOLUME /tmp
