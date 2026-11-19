@@ -3,25 +3,37 @@
 @tailwind utilities;
 
 @layer base {
-  html {
-    font-family: 'Inter', system-ui, sans-serif;
+  :root {
+    --color-primary: rgb(1 97 239);
+    --color-secondary: rgb(1 84 207);
+    --color-accent: rgb(109 40 217);
+    --color-text-heading: rgb(0 0 0);
+    --color-text-default: rgb(16 16 16);
+    --color-text-muted: rgb(16 16 16 / 66%);
+    --color-bg-page: rgb(255 255 255);
   }
+
+  html {
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    font-size: 16px;
+  }
+  
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    @apply bg-slate-100/70 text-slate-900 text-base antialiased selection:bg-blue-100 selection:text-blue-900;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center font-semibold bg-primary hover:bg-secondary text-white rounded-xl shadow-sm transition-all duration-200 py-2.5 px-4 focus:ring-2 focus:ring-primary/20 active:scale-[0.98];
   }
+  
   .btn-secondary {
-    @apply bg-white hover:bg-gray-50 text-gray-700 font-medium px-4 py-2 rounded-lg border border-gray-300 transition-colors duration-200;
+    @apply inline-flex items-center justify-center font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl shadow-sm transition-all duration-200 py-2.5 px-4 hover:border-slate-400 active:scale-[0.98];
   }
-  .input-field {
-    @apply block w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all duration-200;
-  }
-  .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-6;
+
+  /* Crisp, distinct card borders with subtle depth */
+  .card-astrowind {
+    @apply bg-white dark:bg-slate-900 rounded-2xl border border-slate-300/90 dark:border-slate-700/80 shadow-[0_2px_8px_-1px_rgba(0,0,0,0.06),0_1px_3px_0_rgba(0,0,0,0.04)] hover:shadow-[0_8px_20px_-3px_rgba(1,97,239,0.08),0_2px_6px_-1px_rgba(0,0,0,0.05)] hover:border-primary/40 dark:hover:border-blue-500/50 transition-all duration-200;
   }
 }

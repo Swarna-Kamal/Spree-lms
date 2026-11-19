@@ -1,240 +1,638 @@
+import { useEffect, useState, type FormEvent } from 'react';
 import { AppShell } from '../../components/layout/AppShell';
-import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
-import { useAuthStore } from '../../stores/authStore';
+import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
+import { FileUploadZone } from '../../components/ui/FileUploadZone';
+import { enrollmentsApi } from '../../api/enrollments';
+import { assignmentsApi } from '../../api/assignments';
+import { submissionsApi } from '../../api/submissions';
+import { announcementsApi } from '../../api/announcements';
+import { lessonsApi } from '../../api/lessons';
+import { materialsApi } from '../../api/materials';
+import type { Enrollment, Assignment, Announcement, Lesson, Submission, Material } from '../../types';
 import {
+  RefreshCw,
+  Send,
+  X,
+  FileText,
   BookOpen,
-  ClipboardList,
-  ArrowRight,
-  Clock,
-  Megaphone,
-  CheckCircle2,
-  TrendingUp,
-  Star,
+  Award,
+  Download,
+  Paperclip,
+  Calendar,
+  Layers,
 } from 'lucide-react';
 
-// Mock data
-const mockEnrolledCourses = [
-  { id: 1, title: 'Introduction to Mathematics', teacher: 'Dr. Alice Johnson', progress: 72, totalLessons: 18, completedLessons: 13 },
-  { id: 2, title: 'World History', teacher: 'Ms. Clara Davis', progress: 45, totalLessons: 20, completedLessons: 9 },
-  { id: 3, title: 'Introduction to Programming', teacher: 'Mr. David Lee', progress: 90, totalLessons: 15, completedLessons: 14 },
-];
-
-const mockAssignments = [
-  { id: 1, title: 'Problem Set 3', course: 'Intro to Mathematics', dueDate: 'Tomorrow', status: 'pending' },
-  { id: 2, title: 'History Essay', course: 'World History', dueDate: 'In 3 days', status: 'submitted' },
-  { id: 3, title: 'Python Lab 2', course: 'Intro to Programming', dueDate: 'In 1 week', status: 'graded', grade: 92 },
-  { id: 4, title: 'Problem Set 4', course: 'Intro to Mathematics', dueDate: 'In 2 weeks', status: 'pending' },
-];
-
-const mockAnnouncements = [
-  { id: 1, title: 'Mid-term Exam Schedule Released', author: 'Admin', time: '2 hours ago', global: true },
-  { id: 2, title: 'Office Hours Changed This Week', author: 'Dr. Alice Johnson', time: '1 day ago', global: false },
-  { id: 3, title: 'New Learning Resources Added', author: 'Mr. David Lee', time: '3 days ago', global: false },
-];
-
 export const StudentDashboard = () => {
-  const { user } = useAuthStore();
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [allMaterials, setAllMaterials] = useState<Material[]>([]);
+  const [submissionsMap, setSubmissionsMap] = useState<Record<number, Submission>>({});
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
-  const overallProgress = Math.round(
-    mockEnrolledCourses.reduce((acc, c) => acc + c.progress, 0) / mockEnrolledCourses.length
-  );
+  // Course view modal (Lessons & Materials)
+  const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
+  const [selectedCourseTitle, setSelectedCourseTitle] = useState('');
+  const [courseLessons, setCourseLessons] = useState<Lesson[]>([]);
+  const [courseMaterials, setCourseMaterials] = useState<Material[]>([]);
+  const [loadingLessons, setLoadingLessons] = useState(false);
+
+  // Submit Assignment Modal
+  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [submissionContent, setSubmissionContent] = useState('');
+  const [submissionFile, setSubmissionFile] = useState<File | null>(null);
+  const [existingSubmission, setExistingSubmission] = useState<Submission | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const [enrollRes, assignRes, annRes, matRes] = await Promise.all([
+        enrollmentsApi.getMyEnrollments(),
+        assignmentsApi.getForStudent(),
+        announcementsApi.getForStudent(),
+        materialsApi.getForStudent(),
+      ]);
+
+      const myEnrollments = (enrollRes.data.data || []).filter((e) => e.isActive);
+      const studentAssignments = assignRes.data.data || [];
+      setEnrollments(myEnrollments);
+      setAssignments(studentAssignments);
+      setAnnouncements(annRes.data.data || []);
+      setAllMaterials(matRes.data.data || []);
+
+      // Fetch student submissions for these assignments so grades reflect immediately on cards
+      if (studentAssignments.length > 0) {
+        const subMap: Record<number, Submission> = {};
+        await Promise.all(
+          studentAssignments.map(async (a) => {
+            try {
+              const res = await submissionsApi.getMySubmission(a.id);
+              if (res.data.data) {
+                subMap[a.id] = res.data.data;
+              }
+            } catch {
+              // ignore
+            }
+          })
+        );
+        setSubmissionsMap(subMap);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to load student dashboard.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const viewLessonsAndMaterials = async (courseId: number, title: string) => {
+    setSelectedCourseId(courseId);
+    setSelectedCourseTitle(title);
+    try {
+      setLoadingLessons(true);
+      const [lessRes, matRes] = await Promise.all([
+        lessonsApi.getByCourse(courseId),
+        materialsApi.getByCourse(courseId),
+      ]);
+      setCourseLessons(lessRes.data.data || []);
+      setCourseMaterials(matRes.data.data || []);
+    } catch (err: any) {
+      setError('Failed to load course materials.');
+    } finally {
+      setLoadingLessons(false);
+    }
+  };
+
+  const openSubmitModal = async (assign: Assignment) => {
+    setSelectedAssignment(assign);
+    setSubmissionContent('');
+    setSubmissionFile(null);
+    try {
+      const res = await submissionsApi.getMySubmission(assign.id);
+      if (res.data.data) {
+        setExistingSubmission(res.data.data);
+        setSubmissionContent(res.data.data.content || '');
+      } else {
+        setExistingSubmission(null);
+      }
+    } catch {
+      setExistingSubmission(null);
+    }
+  };
+
+  const handleSubmitAssignment = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!selectedAssignment) return;
+
+    if (!submissionContent.trim() && !submissionFile && !existingSubmission?.fileName) {
+      setError('Please provide text or attach a document for your submission.');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError('');
+      setSuccess('');
+
+      await submissionsApi.submitWithFile(
+        selectedAssignment.id,
+        submissionContent.trim() || undefined,
+        submissionFile || undefined
+      );
+
+      setSuccess('Assignment submitted successfully!');
+      setSelectedAssignment(null);
+      setSubmissionFile(null);
+      loadData();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to submit assignment.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDownloadMaterial = (m: Material) => {
+    materialsApi.downloadFile(m.id, m.fileName);
+  };
+
+  const handleDownloadSubmissionFile = (sub: Submission) => {
+    if (sub.fileName) {
+      submissionsApi.downloadSubmissionFile(sub.id, sub.fileName);
+    }
+  };
 
   return (
-    <AppShell title="Dashboard">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Welcome */}
-        <div className="bg-gradient-to-r from-[#1e3a5f] to-blue-600 rounded-2xl p-6 text-white">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-2xl font-bold">
-                Welcome back, {user?.firstName}! 🎓
-              </h2>
-              <p className="text-blue-100 mt-1">
-                You're making great progress. Keep it up!
-              </p>
-            </div>
-            <div className="text-right hidden sm:block">
-              <p className="text-blue-200 text-sm">Overall Progress</p>
-              <p className="text-4xl font-bold">{overallProgress}%</p>
-            </div>
+    <AppShell title="Student Dashboard">
+      <div className="w-full space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Student Learning Portal</h2>
+            <p className="text-slate-500 text-sm mt-1">Access coursework, download instructor materials, submit solutions, and track grades.</p>
           </div>
-          <div className="mt-4 bg-white/20 rounded-full h-2">
-            <div
-              className="bg-white rounded-full h-2 transition-all duration-500"
-              style={{ width: `${overallProgress}%` }}
-            />
-          </div>
-          <p className="text-blue-200 text-xs mt-1">
-            {mockEnrolledCourses.length} courses enrolled
-          </p>
+          <Button variant="secondary" onClick={loadData} disabled={loading}>
+            <RefreshCw className="w-4 h-4" /> Refresh
+          </Button>
         </div>
 
-        {/* Quick stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {[
-            { label: 'Courses', value: mockEnrolledCourses.length, icon: BookOpen, color: 'text-blue-600 bg-blue-100' },
-            { label: 'Assignments Due', value: mockAssignments.filter(a => a.status === 'pending').length, icon: ClipboardList, color: 'text-orange-600 bg-orange-100' },
-            { label: 'Avg. Grade', value: '87%', icon: Star, color: 'text-yellow-600 bg-yellow-100' },
-            { label: 'Streak (days)', value: '7', icon: TrendingUp, color: 'text-green-600 bg-green-100' },
-          ].map(({ label, value, icon: Icon, color }) => (
-            <div key={label} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-              <div className={`inline-flex items-center justify-center w-9 h-9 rounded-lg ${color} mb-3`}>
-                <Icon className="w-4 h-4" />
-              </div>
-              <p className="text-2xl font-bold text-gray-900">{value}</p>
-              <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-            </div>
-          ))}
-        </div>
+        {error && <div className="p-4 bg-rose-50 border border-rose-200/80 rounded-2xl text-xs font-semibold text-rose-700 animate-fade">{error}</div>}
+        {success && <div className="p-4 bg-emerald-50 border border-emerald-200/80 rounded-2xl text-xs font-semibold text-emerald-700 animate-fade">{success}</div>}
 
-        {/* Main content */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Enrolled courses */}
-          <div className="xl:col-span-2 space-y-4">
-            <Card
-              title="My Courses"
-              description="Your enrolled courses and progress"
-              action={
-                <Button variant="ghost" size="sm" className="text-blue-600">
-                  Browse all <ArrowRight className="w-3.5 h-3.5" />
-                </Button>
-              }
-            >
-              <div className="space-y-4 mt-2">
-                {mockEnrolledCourses.map((course) => (
-                  <div
-                    key={course.id}
-                    className="p-4 bg-gray-50 rounded-xl hover:bg-blue-50/50 transition-colors cursor-pointer group"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex-1 min-w-0 mr-3">
-                        <p className="font-medium text-gray-900 group-hover:text-blue-700 transition-colors truncate">
-                          {course.title}
-                        </p>
-                        <p className="text-xs text-gray-400 mt-0.5">{course.teacher}</p>
+        {loading ? (
+          <div className="py-20 flex justify-center">
+            <LoadingSpinner size="lg" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            {/* Left 2 Cols: Enrolled Courses & Coursework with Scores */}
+            <div className="xl:col-span-2 space-y-6">
+              {/* My Enrolled Courses */}
+              <div className="card-astrowind p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">My Enrolled Subjects</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Classes and subjects assigned to you</p>
+                  </div>
+                  <Badge variant="info">{enrollments.length} Enrolled</Badge>
+                </div>
+
+                {enrollments.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    <BookOpen className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                    You are not enrolled in any subjects yet. Your teacher or administrator will add you to your courses.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {enrollments.map((enr) => (
+                      <div key={enr.id} className="py-3.5 flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-bold text-slate-900 text-sm">{enr.courseTitle}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Enrolled: {new Date(enr.enrolledAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => viewLessonsAndMaterials(enr.courseId, enr.courseTitle)}
+                          className="text-xs text-primary border-blue-200 hover:bg-blue-50"
+                        >
+                          <BookOpen className="w-3.5 h-3.5 mr-1" /> View Course & Materials
+                        </Button>
                       </div>
-                      <Badge variant={course.progress >= 80 ? 'success' : course.progress >= 50 ? 'info' : 'warning'}>
-                        {course.progress}%
-                      </Badge>
-                    </div>
-                    <div className="bg-gray-200 rounded-full h-1.5">
-                      <div
-                        className={`rounded-full h-1.5 transition-all duration-500 ${
-                          course.progress >= 80 ? 'bg-green-500' : course.progress >= 50 ? 'bg-blue-500' : 'bg-orange-400'
-                        }`}
-                        style={{ width: `${course.progress}%` }}
-                      />
-                    </div>
-                    <p className="text-xs text-gray-400 mt-2">
-                      {course.completedLessons} of {course.totalLessons} lessons completed
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Course Materials & Handouts (Dedicated Section) */}
+              <div className="card-astrowind p-6">
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      <Paperclip className="w-4 h-4 text-primary" />
+                      Course Materials & Handouts
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Lecture slides, syllabus, and reading materials uploaded by your professors
                     </p>
                   </div>
-                ))}
-              </div>
-            </Card>
+                  <Badge variant="info">{allMaterials.length} Materials</Badge>
+                </div>
 
-            {/* Assignments */}
-            <Card
-              title="Upcoming Assignments"
-              action={
-                <Button variant="ghost" size="sm" className="text-blue-600">
-                  View all <ArrowRight className="w-3.5 h-3.5" />
-                </Button>
-              }
-              noPadding
-            >
-              <div className="divide-y divide-gray-50">
-                {mockAssignments.map((assignment) => (
-                  <div
-                    key={assignment.id}
-                    className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50/50 transition-colors"
-                  >
-                    <div className={`flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0 ${
-                      assignment.status === 'graded' ? 'bg-green-100' :
-                      assignment.status === 'submitted' ? 'bg-blue-100' : 'bg-orange-100'
-                    }`}>
-                      <ClipboardList className={`w-4 h-4 ${
-                        assignment.status === 'graded' ? 'text-green-600' :
-                        assignment.status === 'submitted' ? 'text-blue-600' : 'text-orange-600'
-                      }`} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{assignment.title}</p>
-                      <p className="text-xs text-gray-400">{assignment.course}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {assignment.status === 'graded' && (
-                        <span className="text-sm font-bold text-green-600">{assignment.grade}%</span>
-                      )}
-                      {assignment.status !== 'graded' && (
-                        <span className="text-xs text-gray-400 flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {assignment.dueDate}
-                        </span>
-                      )}
-                      <Badge
-                        variant={
-                          assignment.status === 'graded' ? 'success' :
-                          assignment.status === 'submitted' ? 'info' : 'warning'
-                        }
-                      >
-                        {assignment.status === 'graded' ? 'Graded' :
-                         assignment.status === 'submitted' ? 'Submitted' : 'Pending'}
-                      </Badge>
-                    </div>
+                {allMaterials.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    <FileText className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
+                    No course materials uploaded yet for your enrolled subjects.
                   </div>
-                ))}
-              </div>
-            </Card>
-          </div>
+                ) : (
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {allMaterials.map((mat) => (
+                      <div key={mat.id} className="py-4 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                        <div className="space-y-1.5 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-slate-900 dark:text-white text-sm">
+                              {mat.title || mat.fileName}
+                            </span>
+                            <Badge variant="purple">{mat.courseTitle}</Badge>
+                            {mat.lessonTitle && (
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                                <Layers className="w-3 h-3" /> {mat.lessonTitle}
+                              </span>
+                            )}
+                          </div>
+                          {mat.description && (
+                            <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                              {mat.description}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 flex-wrap">
+                            <span className="inline-flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
+                              <FileText className="w-3.5 h-3.5 text-blue-500" /> {mat.fileName}
+                            </span>
+                            {mat.fileSize && (
+                              <span>{(mat.fileSize / 1024).toFixed(1)} KB</span>
+                            )}
+                            {mat.uploadedByName && (
+                              <span>Uploaded by: <strong className="text-slate-700 dark:text-slate-200">{mat.uploadedByName}</strong></span>
+                            )}
+                            {mat.createdAt && (
+                              <span>{new Date(mat.createdAt).toLocaleDateString()}</span>
+                            )}
+                          </div>
+                        </div>
 
-          {/* Right sidebar */}
-          <div className="space-y-4">
-            {/* Announcements */}
-            <Card title="Announcements">
-              <div className="space-y-4 mt-1">
-                {mockAnnouncements.map((ann) => (
-                  <div key={ann.id} className="flex gap-3">
-                    <div className="flex items-center justify-center w-8 h-8 bg-blue-100 rounded-lg flex-shrink-0 mt-0.5">
-                      <Megaphone className="w-3.5 h-3.5 text-blue-600" />
-                    </div>
+                        <div className="flex items-center gap-2 flex-shrink-0 sm:self-center">
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => handleDownloadMaterial(mat)}
+                            className="text-xs"
+                          >
+                            <Download className="w-3.5 h-3.5 mr-1" />
+                            Download
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Coursework & Assignments with Grade Reflection */}
+              <div className="card-astrowind p-6">
+                <div className="border-b border-slate-100 pb-4 mb-4">
+                  <h3 className="text-base font-bold text-slate-900">My Coursework & Assignments</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Submit your solutions and track your scores and teacher feedback</p>
+                </div>
+
+                {assignments.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    No coursework assigned yet.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {assignments.map((assign) => {
+                      const sub = submissionsMap[assign.id];
+                      const isGraded = sub && sub.status === 'GRADED';
+                      const isSubmitted = sub && sub.status === 'SUBMITTED';
+
+                      return (
+                        <div key={assign.id} className="py-4 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                          <div className="space-y-1.5 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="font-bold text-slate-900 text-sm">{assign.title}</p>
+                              {isGraded ? (
+                                <Badge variant="success">Graded</Badge>
+                              ) : isSubmitted ? (
+                                <Badge variant="info">Submitted</Badge>
+                              ) : (
+                                <Badge variant="warning">Pending</Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              Subject: <strong className="text-slate-800">{assign.courseTitle}</strong> · Max Score: {assign.maxScore || 100}
+                              {assign.dueDate && (
+                                <span className="ml-2 text-slate-400 inline-flex items-center gap-1">
+                                  <Calendar className="w-3 h-3" /> Due: {new Date(assign.dueDate).toLocaleDateString()}
+                                </span>
+                              )}
+                            </p>
+                            {assign.description && (
+                              <p className="text-xs text-slate-600 line-clamp-2">{assign.description}</p>
+                            )}
+
+                            {/* Submitted document pill */}
+                            {sub?.fileName && (
+                              <div className="mt-2 flex items-center gap-2 p-2 bg-blue-50/50 border border-blue-200/60 rounded-xl w-fit">
+                                <FileText className="w-3.5 h-3.5 text-primary" />
+                                <span className="text-xs font-semibold text-slate-800">{sub.fileName}</span>
+                                {sub.fileSize && (
+                                  <span className="text-[11px] text-slate-400">
+                                    ({(sub.fileSize / 1024).toFixed(1)} KB)
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadSubmissionFile(sub)}
+                                  className="text-primary hover:underline text-[11px] font-semibold ml-1 cursor-pointer"
+                                >
+                                  Download
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Reflected Grade & Teacher Feedback Box */}
+                            {isGraded && sub.grade && (
+                              <div className="mt-2 p-3 rounded-2xl bg-emerald-50 border border-emerald-200/80 flex items-start gap-2.5">
+                                <Award className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                                <div className="text-xs text-emerald-950">
+                                  <span className="font-bold text-sm block">
+                                    Grade: {sub.grade.score} / {assign.maxScore || 100}
+                                  </span>
+                                  {sub.grade.feedback && (
+                                    <p className="mt-1 text-emerald-800">
+                                      Teacher Feedback: <em>"{sub.grade.feedback}"</em>
+                                    </p>
+                                  )}
+                                  <span className="text-[10px] text-emerald-700 block mt-1">
+                                    Graded by {sub.grade.gradedByName || 'Teacher'} on {new Date(sub.grade.gradedAt).toLocaleDateString()}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-shrink-0 sm:self-center">
+                            <Button variant="secondary" size="sm" onClick={() => openSubmitModal(assign)}>
+                              <Send className="w-3.5 h-3.5" />
+                              {sub ? 'View / Resubmit' : 'Submit Solution'}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right Col: Course Announcements */}
+            <div className="space-y-6">
+              <div className="card-astrowind p-6">
+                <div className="border-b border-slate-100 pb-3 mb-4">
+                  <h3 className="text-base font-bold text-slate-900">Notices & Announcements</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Notices for your enrolled courses</p>
+                </div>
+
+                {announcements.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    No announcements posted for your subjects.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {announcements.map((ann) => (
+                      <div key={ann.id} className="py-3 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={ann.isGlobal ? 'purple' : 'info'}>
+                            {ann.isGlobal ? 'Global' : ann.courseName || 'Class'}
+                          </Badge>
+                          <span className="text-[11px] text-slate-400">
+                            {new Date(ann.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <h4 className="font-bold text-slate-900 text-xs">{ann.title}</h4>
+                        <p className="text-xs text-slate-600 whitespace-pre-wrap">{ann.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Course Lessons & Materials Modal */}
+        {selectedCourseId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200/80">
+              <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-lg">{selectedCourseTitle}</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Lessons, syllabus & downloadable course materials</p>
+                </div>
+                <button
+                  onClick={() => setSelectedCourseId(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-6">
+                {loadingLessons ? (
+                  <div className="py-12 flex justify-center">
+                    <LoadingSpinner size="md" />
+                  </div>
+                ) : (
+                  <>
+                    {/* Downloadable Materials Section */}
                     <div>
-                      <p className="text-sm font-medium text-gray-900 leading-snug">
-                        {ann.title}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {ann.author} · {ann.time}
-                      </p>
-                      {ann.global && (
-                        <Badge variant="purple" className="mt-1">Global</Badge>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2 mb-3">
+                        <Paperclip className="w-3.5 h-3.5 text-primary" />
+                        Downloadable Course Materials ({courseMaterials.length})
+                      </h4>
+
+                      {courseMaterials.length === 0 ? (
+                        <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl text-center text-xs text-slate-400">
+                          No downloadable documents uploaded for this course yet.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {courseMaterials.map((m) => (
+                            <div
+                              key={m.id}
+                              className="p-3.5 bg-slate-50/70 border border-slate-200/80 rounded-2xl flex items-center justify-between gap-3 hover:border-primary/40 transition-all"
+                            >
+                              <div className="flex items-start gap-3 overflow-hidden">
+                                <div className="w-9 h-9 rounded-xl bg-blue-50 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                                  <FileText className="w-4 h-4" />
+                                </div>
+                                <div className="overflow-hidden">
+                                  <p className="text-xs font-bold text-slate-900 truncate">{m.title}</p>
+                                  <p className="text-[11px] text-slate-500 truncate">
+                                    {m.fileName} • {(m.fileSize / 1024).toFixed(1)} KB
+                                    {m.lessonTitle ? ` • ${m.lessonTitle}` : ' • General Material'}
+                                  </p>
+                                  {m.description && (
+                                    <p className="text-[11px] text-slate-400 mt-0.5">{m.description}</p>
+                                  )}
+                                </div>
+                              </div>
+
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handleDownloadMaterial(m)}
+                                className="py-1 px-3 text-xs text-primary border-blue-200"
+                              >
+                                <Download className="w-3.5 h-3.5 mr-1" /> Download
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
 
-            {/* Completed summary */}
-            <Card title="This Week">
-              <div className="space-y-3">
-                {[
-                  { label: 'Lessons Completed', value: '8', icon: CheckCircle2, color: 'text-green-500' },
-                  { label: 'Assignments Done', value: '3', icon: ClipboardList, color: 'text-blue-500' },
-                  { label: 'Hours Studied', value: '12h', icon: Clock, color: 'text-purple-500' },
-                ].map(({ label, value, icon: Icon, color }) => (
-                  <div key={label} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Icon className={`w-4 h-4 ${color}`} />
-                      <span className="text-sm text-gray-600">{label}</span>
+                    {/* Lessons Section */}
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2 mb-3">
+                        <BookOpen className="w-3.5 h-3.5 text-primary" />
+                        Course Lessons ({courseLessons.length})
+                      </h4>
+
+                      {courseLessons.length === 0 ? (
+                        <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl text-center text-xs text-slate-400">
+                          No lessons published for this course yet.
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {courseLessons.map((lesson, idx) => (
+                            <div key={lesson.id} className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80">
+                              <h5 className="font-bold text-slate-900 text-xs">
+                                {idx + 1}. {lesson.title}
+                              </h5>
+                              {lesson.content && (
+                                <p className="text-xs text-slate-700 mt-2 whitespace-pre-wrap leading-relaxed">
+                                  {lesson.content}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <span className="text-sm font-bold text-gray-900">{value}</span>
-                  </div>
-                ))}
+                  </>
+                )}
               </div>
-            </Card>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Submit Assignment Modal */}
+        {selectedAssignment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200/80">
+              <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-lg">Submit Assignment</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">{selectedAssignment.title} · {selectedAssignment.courseTitle}</p>
+                </div>
+                <button
+                  onClick={() => setSelectedAssignment(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitAssignment} className="p-6 space-y-4">
+                {existingSubmission && (
+                  <div className="p-3.5 bg-blue-50/60 border border-blue-200/80 rounded-2xl text-xs text-slate-800">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-primary">Current Status: {existingSubmission.status}</span>
+                      <span className="text-[11px] text-slate-400">
+                        {new Date(existingSubmission.submittedAt).toLocaleString()}
+                      </span>
+                    </div>
+
+                    {existingSubmission.fileName && (
+                      <div className="mt-2 flex items-center justify-between bg-white p-2 rounded-xl border border-blue-100">
+                        <span className="font-medium text-slate-700 truncate max-w-[200px]">
+                          Attached: {existingSubmission.fileName}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadSubmissionFile(existingSubmission)}
+                          className="text-primary hover:underline text-[11px] font-semibold"
+                        >
+                          Download current file
+                        </button>
+                      </div>
+                    )}
+
+                    {existingSubmission.grade && (
+                      <div className="mt-2 font-bold text-emerald-700">
+                        Score: {existingSubmission.grade.score} / {selectedAssignment.maxScore || 100}
+                        {existingSubmission.grade.feedback && ` — Feedback: "${existingSubmission.grade.feedback}"`}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Your Response / Notes (optional if attaching file)
+                  </label>
+                  <textarea
+                    rows={4}
+                    placeholder="Enter your answers, commentary, or summary..."
+                    value={submissionContent}
+                    onChange={(e) => setSubmissionContent(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  />
+                </div>
+
+                <FileUploadZone
+                  onFileSelect={setSubmissionFile}
+                  selectedFile={submissionFile}
+                  maxSizeBytes={1024 * 1024}
+                  allowedExtensions={['.pdf', '.doc', '.docx']}
+                  label="Attach Submission Document (Optional / Replace)"
+                  helperText="Supported: PDF (.pdf), Word (.doc, .docx) · Max 1 MB"
+                />
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setSelectedAssignment(null)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" variant="primary" size="sm" loading={submitting}>
+                    {existingSubmission ? 'Resubmit Assignment' : 'Submit Assignment'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </AppShell>
   );

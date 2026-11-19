@@ -32,6 +32,12 @@ public class Submission {
     @Column(name = "file_url")
     private String fileUrl;
 
+    @Column(name = "file_name")
+    private String fileName;
+
+    @Column(name = "file_size")
+    private Long fileSize;
+
     @Column(name = "submitted_at")
     private Instant submittedAt;
 

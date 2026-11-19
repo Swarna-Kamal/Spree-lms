@@ -1,3 +1,4 @@
+
 import apiClient from './client';
 import type { AuthResponse } from '../types';
 
@@ -14,9 +15,16 @@ export interface RegisterRequest {
   roleName?: string;
 }
 
+interface ApiResponse<T> {
+  success: boolean;
+  message: string;
+  data: T;
+}
+
 export const authApi = {
   login: (data: LoginRequest) =>
-    apiClient.post<AuthResponse>('/api/auth/login', data),
+    apiClient.post<ApiResponse<AuthResponse>>('/api/auth/login', data),
+
   register: (data: RegisterRequest) =>
-    apiClient.post<AuthResponse>('/api/auth/register', data),
+    apiClient.post<ApiResponse<AuthResponse>>('/api/auth/register', data),
 };

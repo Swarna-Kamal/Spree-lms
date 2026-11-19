@@ -18,7 +18,7 @@ export const StatCard = ({
   label,
   value,
   icon,
-  iconBg = 'bg-blue-100',
+  iconBg = 'bg-blue-50 text-primary border border-blue-200 dark:bg-blue-950/40 dark:border-blue-800',
   trend,
   className,
 }: StatCardProps) => {
@@ -28,45 +28,49 @@ export const StatCard = ({
   return (
     <div
       className={clsx(
-        'bg-white rounded-xl shadow-sm border border-gray-200 p-6',
+        'card-astrowind p-5 relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-300/90 dark:border-slate-700/80',
         className
       )}
     >
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <p className="text-sm font-medium text-gray-500">{label}</p>
-          <p className="mt-2 text-3xl font-bold text-gray-900">{value}</p>
+      <div className="flex items-center justify-between">
+        <div className="flex-1 min-w-0 pr-3">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">
+            {label}
+          </p>
+          <p className="mt-1.5 text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+            {value}
+          </p>
           {trend && (
-            <div className="mt-2 flex items-center gap-1">
+            <div className="mt-2 flex items-center gap-1.5">
               {trendNeutral ? (
-                <Minus className="w-4 h-4 text-gray-400" />
+                <Minus className="w-3.5 h-3.5 text-slate-400" />
               ) : trendPositive ? (
-                <TrendingUp className="w-4 h-4 text-green-500" />
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
               ) : (
-                <TrendingDown className="w-4 h-4 text-red-500" />
+                <TrendingDown className="w-3.5 h-3.5 text-rose-600" />
               )}
               <span
                 className={clsx(
-                  'text-xs font-medium',
+                  'text-xs font-semibold',
                   trendNeutral
-                    ? 'text-gray-500'
+                    ? 'text-slate-500'
                     : trendPositive
-                    ? 'text-green-600'
-                    : 'text-red-600'
+                    ? 'text-emerald-700'
+                    : 'text-rose-700'
                 )}
               >
-                {trend.value > 0 ? '+' : ''}
-                {trend.value}%{' '}
-                <span className="font-normal text-gray-400">
-                  {trend.label || 'vs last month'}
-                </span>
+                {trendPositive ? '+' : ''}
+                {trend.value}%
               </span>
+              {trend.label && (
+                <span className="text-xs text-slate-400 font-normal">{trend.label}</span>
+              )}
             </div>
           )}
         </div>
         <div
           className={clsx(
-            'flex items-center justify-center w-12 h-12 rounded-xl flex-shrink-0 ml-4',
+            'flex items-center justify-center w-11 h-11 rounded-2xl flex-shrink-0 shadow-xs',
             iconBg
           )}
         >
